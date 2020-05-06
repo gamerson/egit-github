@@ -18,11 +18,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeNotNull;
 
-import java.io.IOException;
 import java.util.List;
 
 import org.eclipse.egit.github.core.RepositoryId;
 import org.eclipse.egit.github.core.RepositoryInvitation;
+import org.eclipse.egit.github.core.client.GitHubClient;
 import org.eclipse.egit.github.core.service.CollaboratorService;
 import org.eclipse.egit.github.core.service.RepositoryInvitationService;
 import org.junit.Test;
@@ -32,22 +32,90 @@ import org.junit.Test;
  */
 public class RepositoryInvitationTest extends LiveTest {
 
-	/**
-	 * Test listing repository invitations for the currently logged in user
-	 *
-	 * @throws IOException
-	 */
 	@Test
-	public void getUserRepositoryInvitations() throws IOException {
-		RepositoryInvitationService service = new RepositoryInvitationService(client);
-		List<RepositoryInvitation> repoInvitations = service.getUserRepositoryInvitations();
-		assertNotNull(repoInvitations);
-		assertFalse(repoInvitations.isEmpty());
-		for (RepositoryInvitation repoInvitation : repoInvitations) {
-			assertRepoInvite(repoInvitation);
+	public void testRepositoryInvitations() throws Exception {
+		String testUser = System.getProperty("github.test.user");
+		String testPw = System.getProperty("github.test.password");
+		String testRepo = System.getProperty("github.test.password");
+		String collabUser = System.getProperty("github.test.collab.user");
+		String collabPw= System.getProperty("github.test.collab.password");
+		String collabRepoName= System.getProperty("github.test.collab.repository");
 
-		}
+		assumeNotNull(testUser, testPw, testRepo, collabUser, collabPw, collabRepoName);
+
+		GitHubClient testClient = new GitHubClient();
+		testClient.setCredentials(testUser, testPw);
+		GitHubClient collabClient = new GitHubClient();
+		collabClient.setCredentials(collabUser, collabPw);
+
+		// collabUser invites testUser to collabRepoName
+		CollaboratorService collabService = new CollaboratorService(collabClient);
+		RepositoryId collabRepo = RepositoryId.create(collabUser, collabRepoName);
+		collabService.addCollaborator(collabRepo, testUser);
+
+		// assert that test user can see the repo invitation
+		RepositoryInvitationService testRepoInviteService = new RepositoryInvitationService(testClient);
+		List<RepositoryInvitation> repoInvites = testRepoInviteService.getUserRepositoryInvitations();
+		assertNotNull(repoInvites);
+		assertEquals(1, repoInvites.size());
+		RepositoryInvitation repoInvite = repoInvites.get(0);
+		assertRepoInvite(repoInvite);
+
+
+		// test user declines repo invite and then asserts that test user has no invites
+		testRepoInviteService.declineRepositoryInvitation(repoInvite.getId());
+		repoInvites = testRepoInviteService.getUserRepositoryInvitations();
+		assertNotNull(repoInvites);
+		assertEquals(0, repoInvites.size());
+
+		// collabUser re-invites testUser
+		collabService.addCollaborator(collabRepo, testUser);
+
+		//assert that collabUser can query its invitations
+		RepositoryInvitationService collabRepoInviteService = new RepositoryInvitationService(collabClient);
+		repoInvites = collabRepoInviteService.getRepositoryInvitations(collabUser, collabRepoName);
+		assertNotNull(repoInvites);
+		assertEquals(1, repoInvites.size());
+
+
+		// asert that user can see the repo invite
+		repoInvites = testRepoInviteService.getUserRepositoryInvitations();
+		assertNotNull(repoInvites);
+		assertEquals(1, repoInvites.size());
+		repoInvite = repoInvites.get(0);
+
+		// collab User revokes the invitation
+		collabRepoInviteService.deleteRepositoryInvitation(collabUser, collabRepoName, repoInvite.getId());
+
+		// assert that test user doesn't see an invite anymore
+		repoInvites = testRepoInviteService.getUserRepositoryInvitations();
+		assertNotNull(repoInvites);
+		assertEquals(0, repoInvites.size());
+
+		// collabUser invites testUser one last time
+		collabService.addCollaborator(collabRepo, testUser);
+
+		// assert that test user has final invite
+		repoInvites = testRepoInviteService.getUserRepositoryInvitations();
+		assertNotNull(repoInvites);
+		assertEquals(1, repoInvites.size());
+		repoInvite = repoInvites.get(0);
+
+		// test user accepts and asserts it no longer has any more invites
+		testRepoInviteService.acceptRepositoryInvitation(repoInvite.getId());
+		repoInvites = testRepoInviteService.getUserRepositoryInvitations();
+		assertNotNull(repoInvites);
+		assertEquals(0, repoInvites.size());
+
+		// collabUser asserts that it no longer has any open invitations
+		repoInvites = collabRepoInviteService.getRepositoryInvitations(collabUser, collabRepoName);
+		assertNotNull(repoInvites);
+		assertEquals(0, repoInvites.size());
+
+		// collabUser revokes access
+		collabService.removeCollaborator(collabRepo, testUser);
 	}
+
 
 	private void assertRepoInvite(RepositoryInvitation repoInvite) {
 		assertNotNull(repoInvite);
@@ -76,168 +144,5 @@ public class RepositoryInvitationTest extends LiveTest {
 		assertNotNull(repoInvite.getRepository());
 		assertNotNull(repoInvite.getUrl());
 	}
-
-	/**
-	 * Get invitations for a specific user
-	 *
-	 * @throws IOException
-	 */
-	@Test
-	public void getRepositoryInvitations() throws IOException {
-		RepositoryInvitationService service = new RepositoryInvitationService(client);
-		String owner = System.getProperty("github.test.user");
-		String repository = System.getProperty("github.test.repository");
-		assumeNotNull(owner);
-		assumeNotNull(repository);
-		List<RepositoryInvitation> repoInvites = service.getRepositoryInvitations(owner, repository);
-		assertNotNull(repoInvites);
-		assertFalse(repoInvites.isEmpty());
-		for (RepositoryInvitation repoInvite : repoInvites) {
-			assertRepoInvite(repoInvite);
-		}
-	}
-
-	/**
-	 * Creates and then deletes a repository invitation
-	 *
-	 * @throws IOException
-	 */
-	@Test
-	public void createAndDeleteRepositoryInvitation() throws IOException {
-		String user = System.getProperty("github.test.user");
-		String collabUser = System.getProperty("github.test.collab.user");
-		String collabPassword = System.getProperty("github.test.collab.password");
-		String collabRepository = System.getProperty("github.test.collab.repository");
-		assumeNotNull(user);
-		assumeNotNull(collabUser);
-		assumeNotNull(collabPassword);
-		assumeNotNull(collabRepository);
-
-		client.setCredentials(collabUser, collabPassword);
-
-		RepositoryInvitationService repositoryInvitationService =
-			new RepositoryInvitationService(client);
-
-		List<RepositoryInvitation> priorInvitations =
-			repositoryInvitationService.getRepositoryInvitations(collabUser, collabRepository);
-
-		CollaboratorService cs = new CollaboratorService(client);
-
-		cs.addCollaborator(RepositoryId.create(collabUser, collabRepository), user);
-
-		List<RepositoryInvitation> currentInvitations =
-			repositoryInvitationService.getRepositoryInvitations(collabUser, collabRepository);
-
-		assertEquals(priorInvitations.size() + 1, currentInvitations.size());
-
-		RepositoryInvitation newInvitation =
-			currentInvitations.get(currentInvitations.size() - 1);
-
-		repositoryInvitationService.deleteRepositoryInvitation(
-			collabUser, collabRepository, newInvitation.getId());
-
-		currentInvitations =
-			repositoryInvitationService.getRepositoryInvitations(collabUser, collabRepository);
-
-		assertEquals(priorInvitations.size(), currentInvitations.size());
-	}
-
-	/**
-	 * Creates and sends a invitation from collab user and then accepts it with test user
-	 *
-	 * @throws IOException
-	 */
-	@Test
-	public void acceptRepositoryInvitations() throws IOException {
-		String user = System.getProperty("github.test.user");
-		String password = System.getProperty("github.test.password");
-		String collabUser = System.getProperty("github.test.collab.user");
-		String collabPassword = System.getProperty("github.test.collab.password");
-		String collabRepository = System.getProperty("github.test.collab.repository");
-		assumeNotNull(user);
-		assumeNotNull(password);
-		assumeNotNull(collabUser);
-		assumeNotNull(collabPassword);
-		assumeNotNull(collabRepository);
-
-		client.setCredentials(collabUser, collabPassword);
-
-		CollaboratorService cs = new CollaboratorService(client);
-
-		cs.addCollaborator(RepositoryId.create(collabUser, collabRepository), user);
-
-		RepositoryInvitationService repositoryInvitationService =
-			new RepositoryInvitationService(client);
-
-		List<RepositoryInvitation> originalInvitations =
-			repositoryInvitationService.getRepositoryInvitations(collabUser, collabRepository);
-
-		RepositoryInvitation newInvitation =
-			originalInvitations.get(originalInvitations.size() - 1);
-
-		client.setCredentials(user, password);
-
-		repositoryInvitationService.acceptRepositoryInvitation(newInvitation.getId());
-
-		client.setCredentials(collabUser, collabPassword);
-
-		List<RepositoryInvitation> currentInvitations =
-			repositoryInvitationService.getUserRepositoryInvitations();
-
-		assertEquals(originalInvitations.size() - 1, currentInvitations.size());
-
-		client.setCredentials(collabUser, collabPassword);
-
-		cs.removeCollaborator(RepositoryId.create(collabUser, collabRepository), user);
-	}
-
-	/**
-	 * Creates and sends a invitation from collab user and then declines it with test user
-	 *
-	 * @throws IOException
-	 */
-	@Test
-	public void declineRepositoryInvitation() throws IOException {
-		String user = System.getProperty("github.test.user");
-		String password = System.getProperty("github.test.password");
-		String collabUser = System.getProperty("github.test.collab.user");
-		String collabPassword = System.getProperty("github.test.collab.password");
-		String collabRepository = System.getProperty("github.test.collab.repository");
-		assumeNotNull(user);
-		assumeNotNull(password);
-		assumeNotNull(collabUser);
-		assumeNotNull(collabPassword);
-		assumeNotNull(collabRepository);
-
-		RepositoryInvitationService repositoryInvitationService =
-			new RepositoryInvitationService(client);
-
-		List<RepositoryInvitation> originalRepositoryInvitations =
-			repositoryInvitationService.getUserRepositoryInvitations();
-
-		client.setCredentials(collabUser, collabPassword);
-
-		CollaboratorService cs = new CollaboratorService(client);
-
-		cs.addCollaborator(RepositoryId.create(collabUser, collabRepository), user);
-
-		client.setCredentials(user, password);
-
-		List<RepositoryInvitation> newRepositoryInvitations =
-			repositoryInvitationService.getUserRepositoryInvitations();
-
-		assertEquals(originalRepositoryInvitations.size() + 1, newRepositoryInvitations.size());
-
-		RepositoryInvitation repositoryInvitation =
-			newRepositoryInvitations.get(newRepositoryInvitations.size() - 1);
-
-		repositoryInvitationService.declineRepositoryInvitation(repositoryInvitation.getId());
-
-		List<RepositoryInvitation> currentRepositoryInvitations =
-			repositoryInvitationService.getUserRepositoryInvitations();
-
-		assertEquals(originalRepositoryInvitations.size(), currentRepositoryInvitations.size());
-	}
-
 
 }
